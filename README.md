@@ -45,9 +45,10 @@ value,found:=cache.Set("key1")
 ```
 
 - 删除键
-  ```
-  cache.Del("key1")
-  ```
+```
+cache.Del("key1")
+```
+
 - 设置hash，带过期回调
 
 ```go
