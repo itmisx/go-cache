@@ -3,28 +3,35 @@ package cache
 import "time"
 
 // Set the hash field with expiration and expiration callback function
-func HSet(key string, field string, value interface{}, expiration time.Duration, expirationFunc func()) (success bool) {
+func HSet(
+	key string,
+	field string,
+	value interface{},
+	expiration time.Duration,
+	expirationFunc func(key string, field string, value interface{}),
+) (success bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// if not a map, return false
-	if c.items[key] == nil {
+	// init item field
+	// if not a hashmap, return false
+	if c.items[key] != nil {
+		if fieldMap, ok := c.items[key].(map[string]interface{}); !ok {
+			return false
+		} else {
+			fieldMap[field] = value
+			c.items[key] = fieldMap
+		}
+	} else {
 		c.items[key] = make(map[string]interface{})
 		fieldMap := make(map[string]interface{})
 		fieldMap[field] = value
 		c.items[key] = fieldMap
-	} else if fieldMap, ok := c.items[key].(map[string]interface{}); ok {
-		if fieldMap == nil {
-			fieldMap = make(map[string]interface{})
-		}
-		fieldMap[field] = value
-		c.items[key] = fieldMap
-	} else {
-		return false
 	}
 
+	// init item field expiration callback function
 	if c.itemFieldFunc[key] == nil {
-		c.itemFieldFunc[key] = make(map[string]func())
+		c.itemFieldFunc[key] = make(map[string]func(key string, field string, value interface{}))
 	}
 	c.itemFieldFunc[key][field] = expirationFunc
 
@@ -66,21 +73,19 @@ func HDel(key string, fields ...string) (count int64, success bool) {
 	defer c.mu.Unlock()
 	// if not a map, return false
 	if fieldMap, ok := c.items[key].(map[string]interface{}); ok {
-		if fieldMap == nil {
-			return 0, false
-		}
 		for _, field := range fields {
 			if _, ok := fieldMap[field]; ok {
 				count++
 				delete(fieldMap, field)
-				// delete the field timer
-				// delete the field expiration callback
-				// push true to the chan
-				// delete the field chan key
+				removeJanitor(key, field)
 			}
 		}
 		// reset the item value
-		c.items[key] = fieldMap
+		if len(fieldMap) > 0 {
+			c.items[key] = fieldMap
+		} else {
+			delete(c.items, key)
+		}
 		// return the success number
 		if count > 0 {
 			return count, true
