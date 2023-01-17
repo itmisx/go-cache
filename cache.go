@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"log"
 	"sync"
 	"time"
 )
@@ -11,11 +10,11 @@ var c = &cache{}
 type cache struct {
 	mu                sync.RWMutex
 	items             map[string]interface{}
-	itemTimers        map[string]*time.Timer
-	itemFunc          map[string]func()
+	itemTimer         map[string]*time.Timer
+	itemFunc          map[string]func(key string, value interface{})
 	itemChannel       map[string]chan bool
-	itemFieldTimers   map[string]map[string]*time.Timer
-	itemFieldFunc     map[string]map[string]func()
+	itemFieldTimer    map[string]map[string]*time.Timer
+	itemFieldFunc     map[string]map[string]func(key string, field string, value interface{})
 	itemFieldChannel  map[string]map[string]chan bool
 	defaultExpiration time.Duration
 }
@@ -23,18 +22,13 @@ type cache struct {
 // return
 func init() {
 	c.items = make(map[string]interface{})
-	c.itemTimers = make(map[string]*time.Timer)
-	c.itemFunc = make(map[string]func())
+	c.itemTimer = make(map[string]*time.Timer)
+	c.itemFunc = make(map[string]func(key string, value interface{}))
 	c.itemChannel = make(map[string]chan bool)
-	c.itemFieldTimers = make(map[string]map[string]*time.Timer)
-	c.itemFieldFunc = make(map[string]map[string]func())
+	c.itemFieldTimer = make(map[string]map[string]*time.Timer)
+	c.itemFieldFunc = make(map[string]map[string]func(key string, field string, value interface{}))
 	c.itemFieldChannel = make(map[string]map[string]chan bool)
 	c.defaultExpiration = time.Hour * 1
-}
-
-// DumpCache print cahce's resource
-func DumpCache() {
-	log.Println(c)
 }
 
 // Set the default expiration
@@ -44,30 +38,19 @@ func SetDefaultExpiration(expiration time.Duration) {
 	}
 }
 
-// If the key/value exist  return TRUE , otherwise return false
-func Exist(key string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if _, ok := c.items[key]; ok {
-		return true
-	}
-	return true
-}
-
 // Reset the expiration
 func Expire(key string, expiration time.Duration) (success bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, ok := c.itemTimers[key]; ok {
-		c.itemTimers[key].Stop()
-		c.itemTimers[key] = time.NewTimer(expiration)
+	if _, ok := c.items[key]; !ok {
+		return false
 	}
 	runJanitor(key, "", expiration)
-	return false
+	return true
 }
 
-// Delete the key
-// Sync key deadline
+// Delete the item
+// remove the item or item field resource
 func Del(keys ...string) (success int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -76,48 +59,18 @@ func Del(keys ...string) (success int64) {
 		if _, ok := c.items[key]; ok {
 			// success counter
 			count++
-			// delete item resource
+			//  remove item resource
 			{
-				// stop the timer
-				if !c.itemTimers[key].Stop() {
-					<-c.itemTimers[key].C
-				}
-				// delete the item
 				delete(c.items, key)
-				// delete the item expire callback
-				delete(c.itemFunc, key)
-				// delete the item timer
-				delete(c.itemTimers, key)
-				// push a signal to the item chan
-				c.itemChannel[key] <- true
-				// delete item chan
-				delete(c.itemChannel, key)
+				removeJanitor(key, "")
 			}
 
-			// handle field resource
+			// remove item field resource
 			{
-				// delete item field timer then delete the whole key
-				if fieldTimers, ok := c.itemFieldTimers[key]; ok {
-					for _, timer := range fieldTimers {
-						if !timer.Stop() {
-							<-timer.C
-						}
+				if fieldTimers, ok := c.itemFieldTimer[key]; ok {
+					for field := range fieldTimers {
+						removeJanitor(key, field)
 					}
-					delete(c.itemFieldTimers, key)
-				}
-				// delete item field expire callback then delete the whole key
-				if fieldFuncs, ok := c.itemFieldFunc[key]; ok {
-					for field := range fieldFuncs {
-						delete(fieldFuncs, field)
-					}
-					delete(c.itemFieldFunc, key)
-				}
-				// push a signal to the item field chan then delete the whole key
-				if fieldChans, ok := c.itemFieldChannel[key]; ok {
-					for field := range fieldChans {
-						fieldChans[field] <- true
-					}
-					delete(c.itemFieldChannel, key)
 				}
 			}
 		}
@@ -138,30 +91,31 @@ func runJanitor(key string, field string, expiration time.Duration) {
 	tm := time.NewTimer(expiration)
 
 	if field == "" {
-		// init the item chan
-		if c.itemChannel[key] == nil {
-			c.itemChannel[key] = make(chan bool, 1)
-		}
 
-		// push true to the old chan and give a new chan if old chan exists
+		// if old chan not nil , push true to the old chan to stop the old janitor
 		if c.itemChannel[key] != nil {
 			c.itemChannel[key] <- true
-			c.itemChannel[key] = make(chan bool, 1)
 		}
 
-		// close the old timer if exists
-		if timer, ok := c.itemTimers[key]; ok {
-			if !timer.Stop() {
-				<-timer.C
+		// init the item chan
+		c.itemChannel[key] = make(chan bool, 1)
+		itemChan := c.itemChannel[key]
+
+		// stop the old timer
+		if c.itemTimer[key] != nil {
+			if !c.itemTimer[key].Stop() {
+				if len(c.itemTimer[key].C) > 0 {
+					<-c.itemTimer[key].C
+				}
+				c.itemTimer[key].Stop()
 			}
 		}
-		// create a new timer
-		c.itemTimers[key] = tm
-		// get the new chan
-		itemChan := c.itemChannel[key]
+
+		// init the timer
+		c.itemTimer[key] = tm
+
 		// create a go routine
 		go func() {
-
 			select {
 			case <-tm.C:
 				// Lock
@@ -170,16 +124,30 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				// stop the timer
 				tm.Stop()
 
-				// remove key and it's timer
-				delete(c.items, key)
-				delete(c.itemTimers, key)
+				delete(c.itemTimer, key)
 
-				// exec callback func and delete callback map
-				c.itemFunc[key]()
+				// if exits expiration callback , exec it then delete
+				// hashmap key has no expiration callback
+				if _, ok := c.itemFunc[key]; ok && c.itemFunc[key] != nil {
+					c.itemFunc[key](key, c.items[key])
+				}
 				delete(c.itemFunc, key)
 
 				// delete key chan
 				delete(c.itemChannel, key)
+
+				// if item key is a hashmap key , remove the item field janitor
+				if fieldMap, ok := c.items[key].(map[string]interface{}); ok {
+					for field := range fieldMap {
+						if c.itemFieldFunc[key][field] != nil {
+							c.itemFieldFunc[key][field](key, field, fieldMap[field])
+						}
+						removeJanitor(key, field)
+					}
+				}
+
+				// remove item
+				delete(c.items, key)
 
 				// release Lock
 				c.mu.Unlock()
@@ -193,32 +161,35 @@ func runJanitor(key string, field string, expiration time.Duration) {
 			}
 		}()
 	} else {
-		// init the field chan
+		// init the field timer
+		// if item field timer not nil , stop the old timer
+		if c.itemFieldTimer[key] == nil {
+			c.itemFieldTimer[key] = make(map[string]*time.Timer)
+		} else {
+			if timer, ok := c.itemFieldTimer[key][field]; ok {
+				if !timer.Stop() {
+					if len(timer.C) > 0 {
+						<-timer.C
+					}
+					timer.Stop()
+				}
+			}
+		}
+		c.itemFieldTimer[key][field] = tm
+
+		// init the item field chan
+		// if item field chan not nil , push true to the old chan to stop the old janitor
 		if c.itemFieldChannel[key] == nil {
 			c.itemFieldChannel[key] = make(map[string]chan bool)
-		}
-		if c.itemFieldChannel[key][field] == nil {
-			c.itemFieldChannel[key][field] = make(chan bool, 1)
-		}
-
-		// init the field timer
-		if c.itemFieldTimers[key] == nil {
-			c.itemFieldTimers[key] = make(map[string]*time.Timer)
-		} else if timer, ok := c.itemFieldTimers[key][field]; ok {
-			// stop the old timer and create a new timer
-			if !timer.Stop() {
-				<-timer.C
+		} else {
+			if c.itemFieldChannel[key][field] != nil {
+				c.itemFieldChannel[key][field] <- true
 			}
-			// push true to the old chan and give new chan
-			c.itemFieldChannel[key][field] <- true
-			c.itemFieldChannel[key][field] = make(chan bool, 1)
-
 		}
-		// create a new timer
-		c.itemFieldTimers[key][field] = tm
 
-		// get the new chan
+		c.itemFieldChannel[key][field] = make(chan bool, 1)
 		itemFieldChan := c.itemFieldChannel[key][field]
+
 		// create a goroutine
 		go func() {
 			select {
@@ -239,15 +210,17 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				}
 
 				// delete field timer
-				// if item field timer's length equals zero, delete the whole item field's timers
-				delete(c.itemFieldTimers[key], field)
-				if len(c.itemFieldTimers[key]) == 0 {
-					delete(c.itemFieldTimers, key)
+				// if  field timer's length equals zero, delete the whole item field's timers
+				delete(c.itemFieldTimer[key], field)
+				if len(c.itemFieldTimer[key]) == 0 {
+					delete(c.itemFieldTimer, key)
 				}
 
 				// exec the expiration callback and then delete the callback
 				// if field func's length equals zero, delete the whole field's funcs
-				c.itemFieldFunc[key][field]()
+				if c.itemFieldFunc[key][field] != nil {
+					c.itemFieldFunc[key][field](key, field, fieldMap[field])
+				}
 				delete(c.itemFieldFunc[key], field)
 				if len(c.itemFieldFunc[key]) == 0 {
 					delete(c.itemFieldFunc, key)
@@ -261,9 +234,68 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				}
 			case <-itemFieldChan:
 				c.mu.Lock()
-				defer c.mu.Unlock()
 				close(itemFieldChan)
+				c.mu.Unlock()
 			}
 		}()
+	}
+}
+
+// removeJanitor
+// remove the janitor of the item or item field
+func removeJanitor(key string, field string) {
+
+	// stop and remove the item timer
+	if _, ok := c.itemTimer[key]; ok {
+		tm := c.itemTimer[key]
+		if !tm.Stop() {
+			<-tm.C
+			tm.Stop()
+		}
+		// remove the item timer
+		delete(c.itemTimer, key)
+	}
+
+	// remove the item func
+	delete(c.itemFunc, key)
+
+	// remove the item janitor chan
+	if _, ok := c.itemChannel[key]; ok {
+		c.itemChannel[key] <- true
+		delete(c.itemChannel, key)
+	}
+
+	// stop and remove the item field timer
+	if _, ok := c.itemFieldTimer[key]; ok {
+		if _, ok := c.itemFieldTimer[key][field]; ok {
+			tm := c.itemFieldTimer[key][field]
+			if !tm.Stop() {
+				<-tm.C
+				tm.Stop()
+			}
+			delete(c.itemFieldTimer[key], field)
+		}
+		if len(c.itemFieldTimer[key]) == 0 {
+			delete(c.itemFieldTimer, key)
+		}
+	}
+
+	// remove item field expiration callback function
+	if _, ok := c.itemFieldFunc[key]; ok {
+		delete(c.itemFieldFunc[key], field)
+		if len(c.itemFieldFunc[key]) == 0 {
+			delete(c.itemFieldFunc, key)
+		}
+	}
+
+	// remove item field janitor chan
+	if _, ok := c.itemFieldChannel[key]; ok {
+		if _, ok := c.itemFieldChannel[key][field]; ok {
+			c.itemFieldChannel[key][field] <- true
+			delete(c.itemFieldChannel[key], field)
+		}
+		if len(c.itemFieldChannel[key]) == 0 {
+			delete(c.itemFieldChannel, key)
+		}
 	}
 }
