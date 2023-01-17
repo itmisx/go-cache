@@ -199,15 +199,9 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				// stop the timer
 				tm.Stop()
 
-				// delete the field
+				// get item value
 				val := c.items[key]
 				fieldMap, _ := val.(map[string]interface{})
-				delete(fieldMap, field)
-
-				// if field length equals zero , delete whole item
-				if len(fieldMap) == 0 {
-					delete(c.items, key)
-				}
 
 				// delete field timer
 				// if  field timer's length equals zero, delete the whole item field's timers
@@ -232,6 +226,16 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				if len(c.itemFieldChannel[key]) == 0 {
 					delete(c.itemFieldChannel, key)
 				}
+
+				// delete the item field
+				delete(fieldMap, field)
+				c.items[key] = fieldMap
+
+				// if field length equals zero , delete whole item
+				if len(fieldMap) == 0 {
+					delete(c.items, key)
+				}
+
 			case <-itemFieldChan:
 				c.mu.Lock()
 				close(itemFieldChan)
