@@ -4,7 +4,9 @@
 
 #### 🚀 安装
 
-`go get -u github.com/itmisx/go-cache`
+```go
+go get -u github.com/itmisx/go-cache
+```
 
 #### ✨ 特性
 
