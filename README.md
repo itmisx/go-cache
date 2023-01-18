@@ -4,7 +4,7 @@
 
 #### 🚀 安装
 
-```go
+```bash
 go get -u github.com/itmisx/go-cache
 ```
 
