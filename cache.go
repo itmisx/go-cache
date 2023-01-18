@@ -253,7 +253,9 @@ func removeJanitor(key string, field string) {
 	if _, ok := c.itemTimer[key]; ok {
 		tm := c.itemTimer[key]
 		if !tm.Stop() {
-			<-tm.C
+			if len(tm.C) > 0 {
+				<-tm.C
+			}
 			tm.Stop()
 		}
 		// remove the item timer
@@ -274,7 +276,9 @@ func removeJanitor(key string, field string) {
 		if _, ok := c.itemFieldTimer[key][field]; ok {
 			tm := c.itemFieldTimer[key][field]
 			if !tm.Stop() {
-				<-tm.C
+				if len(tm.C) > 0 {
+					<-tm.C
+				}
 				tm.Stop()
 			}
 			delete(c.itemFieldTimer[key], field)
