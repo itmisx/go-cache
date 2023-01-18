@@ -59,19 +59,20 @@ func Del(keys ...string) (success int64) {
 		if _, ok := c.items[key]; ok {
 			// success counter
 			count++
+
+			// remove item field resource
+			{
+				if fieldMap, ok := c.items[key].(map[string]interface{}); ok {
+					for field := range fieldMap {
+						removeJanitor(key, field)
+					}
+				}
+			}
+
 			//  remove item resource
 			{
 				delete(c.items, key)
 				removeJanitor(key, "")
-			}
-
-			// remove item field resource
-			{
-				if fieldTimers, ok := c.itemFieldTimer[key]; ok {
-					for field := range fieldTimers {
-						removeJanitor(key, field)
-					}
-				}
 			}
 		}
 	}
