@@ -5,12 +5,16 @@ import (
 )
 
 // Set Key value with expiration and expiration callback function
-func Set(key string, value interface{}, expiration time.Duration, expirationFunc func(key string, val interface{})) {
+func Set(key string, value interface{}, expiration time.Duration, expirationFunc func(key string, value interface{})) (success bool) {
+	if key == "" {
+		return false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.items[key] = value
 	c.itemFunc[key] = expirationFunc
 	runJanitor(key, "", expiration)
+	return true
 }
 
 // Get the vlaue of given key , if exist return true, or return false
