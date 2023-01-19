@@ -119,6 +119,9 @@ func runJanitor(key string, field string, expiration time.Duration) {
 		go func() {
 			select {
 			case <-tm.C:
+				var expirationFunc func(key string, value interface{})
+				var expirationFuncValue = c.items[key]
+
 				// Lock
 				c.mu.Lock()
 
@@ -131,6 +134,7 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				// hashmap key has no expiration callback
 				if _, ok := c.itemFunc[key]; ok && c.itemFunc[key] != nil {
 					c.itemFunc[key](key, c.items[key])
+					expirationFunc = c.itemFunc[key]
 				}
 				delete(c.itemFunc, key)
 
@@ -152,6 +156,11 @@ func runJanitor(key string, field string, expiration time.Duration) {
 
 				// release Lock
 				c.mu.Unlock()
+
+				// exec expiration callback at last,avoid deadlock
+				if expirationFunc != nil {
+					expirationFunc(key, expirationFuncValue)
+				}
 			case <-itemChan:
 				// Lock
 				c.mu.Lock()
@@ -195,14 +204,16 @@ func runJanitor(key string, field string, expiration time.Duration) {
 		go func() {
 			select {
 			case <-tm.C:
+				var expirationFunc func(key string, field string, value interface{})
+
 				c.mu.Lock()
-				defer c.mu.Unlock()
 				// stop the timer
 				tm.Stop()
 
 				// get item value
 				val := c.items[key]
 				fieldMap, _ := val.(map[string]interface{})
+				var expirationFuncValue = fieldMap[field]
 
 				// delete field timer
 				// if  field timer's length equals zero, delete the whole item field's timers
@@ -214,7 +225,7 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				// exec the expiration callback and then delete the callback
 				// if field func's length equals zero, delete the whole field's funcs
 				if c.itemFieldFunc[key][field] != nil {
-					c.itemFieldFunc[key][field](key, field, fieldMap[field])
+					expirationFunc = c.itemFieldFunc[key][field]
 				}
 				delete(c.itemFieldFunc[key], field)
 				if len(c.itemFieldFunc[key]) == 0 {
@@ -235,6 +246,11 @@ func runJanitor(key string, field string, expiration time.Duration) {
 				// if field length equals zero , delete whole item
 				if len(fieldMap) == 0 {
 					delete(c.items, key)
+				}
+				c.mu.Unlock()
+				// exec expiration callback at last,avoid deadlock
+				if expirationFunc != nil {
+					expirationFunc(key, field, expirationFuncValue)
 				}
 
 			case <-itemFieldChan:
