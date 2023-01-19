@@ -10,6 +10,9 @@ func HSet(
 	expiration time.Duration,
 	expirationFunc func(key string, field string, value interface{}),
 ) (success bool) {
+	if key == "" || field == "" {
+		return false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
