@@ -43,7 +43,7 @@ cache.Expire("key1",time.Second*4)
 
 ```go
 // found指示是否存在
-value,found:=cache.Set("key1")
+value,found := cache.Get("key1")
 ```
 
 - 删除键
@@ -69,7 +69,7 @@ cache.Expire("hkey1","hfield1",time.Second*3)
 
 ```go
 // found指示是否存在
-value,found:= cache.HGet("hkey1","hfield1")
+value,found := cache.HGet("hkey1","hfield1")
 ```
 
 - 删除hash字段
