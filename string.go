@@ -2,6 +2,8 @@ package cache
 
 import (
 	"time"
+
+	"github.com/itmisx/timewheel"
 )
 
 // Set Key value with expiration and expiration callback function
@@ -12,8 +14,13 @@ func Set(key string, value interface{}, expiration time.Duration, expirationFunc
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.items[key] = value
-	c.itemFunc[key] = expirationFunc
-	runJanitor(key, "", expiration)
+	if expiration > 0 {
+		c.itemFunc[key] = expirationFunc
+		timewheel.AddTimer(key+":::"+"", expiration, map[string]string{
+			"key":   key,
+			"field": "",
+		})
+	}
 	return true
 }
 
