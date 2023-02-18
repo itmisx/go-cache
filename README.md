@@ -1,12 +1,10 @@
 # go-cache
 
-一个基于内存的key/value的go语言存储库，支持string和hash
+一个基于内存的 key/value 的 go 语言存储库，支持 string 和 hash
 
 #### 🚀 安装
 
-```bash
-go get -u github.com/itmisx/go-cache
-```
+`go get -u github.com/itmisx/go-cache`
 
 #### ✨ 特性
 
@@ -47,11 +45,12 @@ value,found := cache.Get("key1")
 ```
 
 - 删除键
-```
+
+```go
 cache.Del("key1")
 ```
 
-- 设置hash，带过期回调
+- 设置 hash，带过期回调
 
 ```go
 cache.HSet("hkey1", "hfield1", 1, time.Second*8, func(key string, field string, value interface{}) {
@@ -59,20 +58,20 @@ cache.HSet("hkey1", "hfield1", 1, time.Second*8, func(key string, field string, 
 })
 ```
 
-- 设置hash字段的过期时间
+- 设置 hash 字段的过期时间
 
 ```go
 cache.Expire("hkey1","hfield1",time.Second*3)
 ```
 
-- 获取hash值
+- 获取 hash 值
 
 ```go
 // found指示是否存在
 value,found := cache.HGet("hkey1","hfield1")
 ```
 
-- 删除hash字段
+- 删除 hash 字段
 
 ```go
 cache.HDel("hkey1","hfield1")
