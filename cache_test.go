@@ -6,32 +6,25 @@ import (
 	"time"
 )
 
+// 2023/02/18 13:25:45 key: 1 true , hkey: 1 true
+// 2023/02/18 13:25:46 key: 1 true , hkey: 1 true
+// 2023/02/18 13:25:47 key: <nil> false , hkey: 1 true
+// 2023/02/18 13:25:48 key: <nil> false , hkey: 1 true
+// 2023/02/18 13:25:48 heky expired hkey field1 1
 func TestXxx(t *testing.T) {
-	// string test
-	for i := 0; i < 1; i++ {
-		go func() {
-			Set("key1", 1, time.Second*4, func(key string, value interface{}) {
-				log.Println("callback1", key, value)
-			})
-			Expire("key1", time.Second*7)
-		}()
-	}
-	for i := 0; i < 1; i++ {
-		go func() {
-			HSet("hkey1", "hfield1", 1, time.Second*8, func(key string, field string, value interface{}) {
-				log.Println("callback2", key, field, value)
-			})
-			Expire("hkey1", time.Second*7)
-		}()
-	}
-	log.Println(Del("afsdf"))
-	log.Println(Get("key1"))
-	log.Println(Get("key2"))
-	log.Println(HDel("hkey1", "hfield1"))
-	log.Println(HGet("hkey1", "hfield1"))
-	log.Println(HGet("hkey1", "hfield2"))
-	time.Sleep(time.Second * 10)
+	end := false
+	Set("key", 1, time.Second*2, nil)
+	HSet("hkey", "field1", 1, time.Second*4, func(key, field string, value interface{}) {
+		end = true
+		log.Println("heky expired", key, field, value)
+	})
 	for {
+		keyvalue, keyRes := Get("key")
+		hkeyvalue, hkeyRes := HGet("hkey", "field1")
 		time.Sleep(time.Second)
+		log.Println("key:", keyvalue, keyRes, ",", "hkey:", hkeyvalue, hkeyRes)
+		if end {
+			break
+		}
 	}
 }
