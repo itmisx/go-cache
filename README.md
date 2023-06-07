@@ -71,8 +71,14 @@ cache.Expire("hkey1","hfield1",time.Second*3)
 value,found := cache.HGet("hkey1","hfield1")
 ```
 
+- 获取所有的hash值
+
+```go
+val,found:=cache.HGetAll("hkey1")
+```
+
 - 删除 hash 字段
 
 ```go
-cache.HDel("hkey1","hfield1")
+val,fount:=cache.HDel("hkey1","hfield1")
 ```
