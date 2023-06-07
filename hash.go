@@ -87,7 +87,7 @@ func HSet(
 }
 
 // Get All Hash key value
-func HGetALL(key string) (value map[string]interface{}, found bool) {
+func HGetAll(key string) (value map[string]interface{}, found bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	// if not a map, return false
